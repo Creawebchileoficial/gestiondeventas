@@ -708,6 +708,11 @@ async function handleGoogleAuth(button, context = 'login') {
             case 'auth/account-exists-with-different-credential':
                 errorMessage = 'Ya existe una cuenta con otro método de acceso. Usa tu correo y contraseña.';
                 break;
+            case 'auth/unauthorized-domain': {
+                const currentDomain = window?.location?.hostname || 'este dominio';
+                errorMessage = `El dominio ${currentDomain} no está autorizado para usar Google Sign-In. Agrega este dominio en Firebase > Authentication > Settings > Authorized domains o usa la app oficial.`;
+                break;
+            }
             default:
                 break;
         }
