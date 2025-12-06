@@ -1,22 +1,222 @@
-import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, sendPasswordResetEmail, signOut } from 'https://www.gstatic.com/firebasejs/11.1.0/firebase-auth.js';
+import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, sendPasswordResetEmail, signOut, GoogleAuthProvider, signInWithPopup, fetchSignInMethodsForEmail } from 'https://www.gstatic.com/firebasejs/11.1.0/firebase-auth.js';
 import { getFirestore, collection, addDoc, getDocs, deleteDoc, doc, updateDoc, getDoc, query, where, setDoc } from 'https://www.gstatic.com/firebasejs/11.1.0/firebase-firestore.js';
 
 const app = window.firebaseApp;
 const auth = getAuth(app);
+const googleProvider = new GoogleAuthProvider();
+googleProvider.setCustomParameters({ prompt: 'select_account' });
 const db = getFirestore(app);
+const SHARED_SESSION_KEY = 'sellstream_shared_session';
+const SHARED_EMAIL_DOMAIN = 'sellstream.trustzonestore.com';
 
-// Agregar después de las importaciones existentes
 let currentFilter = null;
 let currentSales = [];
+let sharedSession = null;
+let sharedAccessEntries = [];
+let inventoryProducts = [];
+let productUsageMap = {};
+let updateIntervals = new Map();
 
-function showLoading(element) {
-    element.classList.add('loading');
-    element.disabled = true;
+const sharedSessionBadge = document.getElementById('sharedSessionBadge');
+const sharedAccessForm = document.getElementById('sharedAccessForm');
+const sharedAccessAliasInput = document.getElementById('sharedAccessAlias');
+const sharedAliasHelper = document.getElementById('sharedAliasHelper');
+const sharedPasswordHelper = document.getElementById('sharedPasswordHelper');
+
+let aliasCheckTimeout = null;
+let lastAliasCheck = { alias: '', available: null };
+const productHelperDefaults = new WeakMap();
+
+function sanitizeAlias(value = '') {
+    return value
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9.-]/g, '')
+        .replace(/\.+/g, '.')
+        .replace(/^\./, '')
+        .replace(/\.$/, '')
+        .slice(0, 30);
 }
 
-function hideLoading(element) {
-    element.classList.remove('loading');
-    element.disabled = false;
+function buildSharedEmail(alias) {
+    const sanitized = sanitizeAlias(alias);
+    return sanitized ? `${sanitized}@${SHARED_EMAIL_DOMAIN}` : '';
+}
+
+function normalizeEmail(value = '') {
+    const trimmed = value.trim().toLowerCase();
+    if (!trimmed.includes('@')) {
+        return buildSharedEmail(trimmed);
+    }
+    const [alias, domain] = trimmed.split('@');
+    if (domain === SHARED_EMAIL_DOMAIN) {
+        return buildSharedEmail(alias);
+    }
+    return trimmed;
+}
+
+async function hashSharedPassword(password) {
+    const encoder = new TextEncoder();
+    const data = encoder.encode(password);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+function setAliasHelperState(message, state = 'muted') {
+    if (!sharedAliasHelper) return;
+    sharedAliasHelper.textContent = message;
+    sharedAliasHelper.classList.remove('text-success', 'text-danger', 'text-muted');
+    switch (state) {
+        case 'success':
+            sharedAliasHelper.classList.add('text-success');
+            break;
+        case 'danger':
+            sharedAliasHelper.classList.add('text-danger');
+            break;
+        default:
+            sharedAliasHelper.classList.add('text-muted');
+    }
+}
+
+async function isAliasAvailable(alias) {
+    const sanitized = sanitizeAlias(alias);
+    if (!sanitized) return false;
+
+    try {
+        const aliasQuery = query(
+            collection(db, 'sharedAccess'),
+            where('email', '==', buildSharedEmail(sanitized))
+        );
+        const snapshot = await getDocs(aliasQuery);
+        return snapshot.empty;
+    } catch (error) {
+        console.error('Error verificando alias:', error);
+        return false;
+    }
+}
+
+function persistSharedSession() {
+    if (!sharedSession) {
+        localStorage.removeItem(SHARED_SESSION_KEY);
+        return;
+    }
+    localStorage.setItem(SHARED_SESSION_KEY, JSON.stringify(sharedSession));
+}
+
+function restoreSharedSession() {
+    try {
+        const stored = localStorage.getItem(SHARED_SESSION_KEY);
+        if (stored) {
+            sharedSession = JSON.parse(stored);
+        }
+    } catch (error) {
+        console.warn('No se pudo restaurar el acceso compartido:', error);
+        sharedSession = null;
+    } finally {
+        updateSharedSessionBadge();
+    }
+}
+
+function clearSharedSession() {
+    sharedSession = null;
+    localStorage.removeItem(SHARED_SESSION_KEY);
+    updateSharedSessionBadge();
+}
+
+function isSharedSessionActive() {
+    return !!sharedSession;
+}
+
+function getActiveUserId() {
+    if (isSharedSessionActive()) {
+        return sharedSession.ownerId;
+    }
+    return auth.currentUser?.uid || null;
+}
+
+function updateSharedSessionBadge() {
+    if (!sharedSessionBadge) return;
+    if (isSharedSessionActive()) {
+        sharedSessionBadge.classList.remove('d-none');
+        sharedSessionBadge.innerHTML = '<i class="fas fa-user-friends me-1"></i>Acceso compartido';
+    } else {
+        sharedSessionBadge.classList.add('d-none');
+        sharedSessionBadge.innerHTML = '';
+    }
+}
+
+restoreSharedSession();
+
+if (sharedAccessAliasInput) {
+    sharedAccessAliasInput.addEventListener('input', () => {
+        const sanitized = sanitizeAlias(sharedAccessAliasInput.value);
+        if (sharedAccessAliasInput.value !== sanitized) {
+            sharedAccessAliasInput.value = sanitized;
+        }
+        if (!sanitized) {
+            setAliasHelperState('Escribe un alias único; te mostraremos si está disponible.');
+            lastAliasCheck = { alias: '', available: null };
+            return;
+        }
+
+        const previewEmail = buildSharedEmail(sanitized);
+        setAliasHelperState(`Verificando ${previewEmail}...`);
+        lastAliasCheck = { alias: sanitized, available: null };
+        if (aliasCheckTimeout) clearTimeout(aliasCheckTimeout);
+        aliasCheckTimeout = setTimeout(async () => {
+            const available = await isAliasAvailable(sanitized);
+            lastAliasCheck = { alias: sanitized, available };
+            if (available) {
+                setAliasHelperState(`${previewEmail} está disponible`, 'success');
+            } else {
+                setAliasHelperState(`${previewEmail} ya existe. Intenta otro alias.`, 'danger');
+            }
+        }, 400);
+    });
+}
+
+function isOwnerSessionActive() {
+    return !!auth.currentUser && !isSharedSessionActive();
+}
+
+function logoutWorkspace() {
+    clearSharedSession();
+    if (auth.currentUser) {
+        signOut(auth).catch((error) => {
+            console.warn('Error al cerrar sesión:', error);
+        });
+    } else {
+        refreshApplicationState(null);
+    }
+}
+
+async function validateSharedAccessState() {
+    if (!isSharedSessionActive()) {
+        return true;
+    }
+
+    try {
+        const accessRef = doc(db, 'sharedAccess', sharedSession.accessId);
+        const snapshot = await getDoc(accessRef);
+        if (!snapshot.exists()) {
+            clearSharedSession();
+            showError('El acceso compartido fue revocado');
+            return false;
+        }
+        const data = snapshot.data();
+        if (data.ownerId !== sharedSession.ownerId) {
+            clearSharedSession();
+            return false;
+        }
+        return true;
+    } catch (error) {
+        console.error('Error validando acceso compartido:', error);
+        clearSharedSession();
+        showError('No se pudo validar el acceso compartido');
+        return false;
+    }
 }
 
 // Utility functions
@@ -90,11 +290,29 @@ function formatWhatsAppLink(number, message) {
     return `https://wa.me/56${number}?text=${formattedMessage}`;
 }
 
+function buildWhatsAppReminderMessage(sale) {
+    const daysRemaining = calculateDaysRemaining(sale.startDate, sale.endDate);
+    const clientName = sale.client || 'cliente';
+    const productName = sale.product || 'tu servicio';
+
+    if (daysRemaining < 0) {
+        const daysExpired = Math.abs(daysRemaining);
+        const expiredText = daysExpired === 1 ? '1 día' : `${daysExpired} días`;
+        return `Hola ${clientName}, tu suscripción de ${productName} venció hace ${expiredText}. ¿Deseas renovarla para seguir disfrutando del servicio?`;
+    }
+
+    if (daysRemaining === 0) {
+        return `Hola ${clientName}, tu suscripción de ${productName} vence hoy. Si quieres renovarla, avísame para activarla sin interrupciones.`;
+    }
+
+    return `Hola ${clientName}, te quedan ${daysRemaining} días de tu suscripción de ${productName}. ¿Quieres asegurar la renovación antes de que venza?`;
+}
+
 function formatContactInfo(sale) {
     let contactHtml = '';
     
     if (sale.whatsapp) {
-        const message = `Hola ${sale.client}, te quedan ${calculateDaysRemaining(sale.startDate, sale.endDate)} días de tu suscripción de ${sale.product}`;
+        const message = buildWhatsAppReminderMessage(sale);
         contactHtml += `
             <p class="mb-1">
                 <a href="${formatWhatsAppLink(sale.whatsapp, message)}" target="_blank" class="text-decoration-none">
@@ -156,29 +374,169 @@ function formatSaleInfoForSharing(sale) {
     return info;
 }
 
+
+
+
+
+const authFormContainer = document.querySelector('.auth-form-container');
+const authTabs = document.querySelectorAll('.auth-tab');
+const loginForm = document.getElementById('authForm');
+const registerForm = document.getElementById('registerForm');
+const recoveryForm = document.getElementById('recoveryForm');
+const collaboratorLoginForm = document.getElementById('collaboratorLoginForm');
+const collaboratorAliasInput = document.getElementById('collaboratorAlias');
+const collaboratorPasswordInput = document.getElementById('collaboratorPassword');
+const openCollaboratorLoginBtn = document.getElementById('openCollaboratorLogin');
+const backToOwnerAuthBtn = document.getElementById('backToOwnerAuth');
+const saleProductSelect = document.getElementById('saleProductId');
+const saleProductInfo = document.getElementById('saleProductInfo');
+const saleProductProfileInput = document.getElementById('saleProductProfile');
+const editSaleProductSelect = document.getElementById('editSaleProductId');
+const editSaleProductInfo = document.getElementById('editSaleProductInfo');
+const editSaleProductProfileInput = document.getElementById('editSaleProductProfile');
+
+function setAuthView(view = 'login') {
+    if (!authFormContainer) return;
+    const showRegister = view === 'register';
+    authFormContainer.classList.toggle('show-register', showRegister);
+    authFormContainer.classList.remove('collaborator-mode');
+    authTabs.forEach(tab => {
+        const tabView = tab.dataset?.view;
+        tab.classList.toggle('active', tabView === view);
+    });
+
+    if (loginForm && registerForm) {
+        loginForm.classList.toggle('active', !showRegister);
+        registerForm.classList.toggle('active', showRegister);
+    }
+
+    if (recoveryForm) {
+        recoveryForm.classList.remove('active');
+    }
+
+    if (collaboratorLoginForm) {
+        collaboratorLoginForm.classList.remove('active');
+    }
+}
+
+function showCollaboratorLogin() {
+    if (!collaboratorLoginForm) return;
+    loginForm?.classList.remove('active');
+    registerForm?.classList.remove('active');
+    recoveryForm?.classList.remove('active');
+    authTabs.forEach(tab => tab.classList.remove('active'));
+    authFormContainer?.classList.add('collaborator-mode');
+    collaboratorLoginForm.classList.add('active');
+    if (collaboratorAliasInput) {
+        collaboratorAliasInput.focus();
+    }
+}
+
+function hideCollaboratorLogin() {
+    if (!collaboratorLoginForm) return;
+    collaboratorLoginForm.reset();
+    collaboratorLoginForm.classList.remove('active');
+    authFormContainer?.classList.remove('collaborator-mode');
+    setAuthView('login');
+}
+
 // Auth form toggling
 document.getElementById('showRegisterForm').addEventListener('click', (e) => {
     e.preventDefault();
-    document.querySelector('.auth-form-container').classList.add('show-register');
+    setAuthView('register');
 });
 
 document.getElementById('showLoginForm').addEventListener('click', (e) => {
     e.preventDefault();
-    document.querySelector('.auth-form-container').classList.remove('show-register');
+    setAuthView('login');
 });
+
+const authTabLogin = document.getElementById('authTabLogin');
+const authTabRegister = document.getElementById('authTabRegister');
+
+if (authTabLogin) {
+    authTabLogin.addEventListener('click', () => setAuthView('login'));
+}
+
+if (authTabRegister) {
+    authTabRegister.addEventListener('click', () => setAuthView('register'));
+}
+
+setAuthView('login');
 
 // Password recovery toggle
 document.getElementById('forgotPasswordLink').addEventListener('click', (e) => {
     e.preventDefault();
-    document.getElementById('authForm').style.display = 'none';
-    document.getElementById('recoveryForm').classList.add('active');
+    if (loginForm) loginForm.classList.remove('active');
+    if (registerForm) registerForm.classList.remove('active');
+    if (recoveryForm) recoveryForm.classList.add('active');
 });
 
 document.getElementById('backToLogin').addEventListener('click', (e) => {
     e.preventDefault();
-    document.getElementById('authForm').style.display = 'block';
-    document.getElementById('recoveryForm').classList.remove('active');
+    if (recoveryForm) recoveryForm.classList.remove('active');
+    setAuthView('login');
 });
+
+if (openCollaboratorLoginBtn) {
+    openCollaboratorLoginBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        showCollaboratorLogin();
+    });
+}
+
+if (backToOwnerAuthBtn) {
+    backToOwnerAuthBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        hideCollaboratorLogin();
+    });
+}
+
+if (collaboratorAliasInput) {
+    collaboratorAliasInput.addEventListener('input', () => {
+        const sanitized = sanitizeAlias(collaboratorAliasInput.value);
+        if (collaboratorAliasInput.value !== sanitized) {
+            collaboratorAliasInput.value = sanitized;
+        }
+    });
+}
+
+if (collaboratorLoginForm) {
+    collaboratorLoginForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const submitBtn = collaboratorLoginForm.querySelector('button[type="submit"]');
+        showLoading(submitBtn);
+
+        try {
+            const sanitizedAlias = sanitizeAlias(collaboratorAliasInput?.value || '');
+            const password = collaboratorPasswordInput?.value || '';
+
+            if (!sanitizedAlias || sanitizedAlias.length < 3) {
+                throw new Error('Ingresa un alias válido');
+            }
+
+            if (!password) {
+                throw new Error('Ingresa la contraseña temporal');
+            }
+
+            if (collaboratorAliasInput && collaboratorAliasInput.value !== sanitizedAlias) {
+                collaboratorAliasInput.value = sanitizedAlias;
+            }
+
+            const email = buildSharedEmail(sanitizedAlias);
+            const success = await attemptSharedAccessLogin(email, password);
+            if (!success) {
+                throw new Error('Alias o contraseña incorrectos');
+            }
+
+            hideCollaboratorLogin();
+        } catch (error) {
+            showError(error.message || 'No se pudo validar el acceso');
+        } finally {
+            hideLoading(submitBtn);
+        }
+    });
+}
 
 // Update auth form submissions
 document.getElementById('authForm').addEventListener('submit', async (e) => {
@@ -195,11 +553,15 @@ document.getElementById('authForm').addEventListener('submit', async (e) => {
         }
 
         await signInWithEmailAndPassword(auth, email, password);
+        clearSharedSession();
         showSuccess('Inicio de sesión exitoso');
     } catch (error) {
         let errorMessage = '';
         switch (error.code) {
             case 'auth/user-not-found':
+                if (await attemptSharedAccessLogin(document.getElementById('loginEmail').value, document.getElementById('loginPassword').value)) {
+                    return;
+                }
                 errorMessage = 'Usuario no encontrado';
                 break;
             case 'auth/wrong-password':
@@ -246,6 +608,14 @@ document.getElementById('registerForm').addEventListener('submit', async (e) => 
     }
 });
 
+document.getElementById('googleLoginBtn').addEventListener('click', (e) => {
+    handleGoogleAuth(e.currentTarget, 'login');
+});
+
+document.getElementById('googleRegisterBtn').addEventListener('click', (e) => {
+    handleGoogleAuth(e.currentTarget, 'register');
+});
+
 document.getElementById('recoveryForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     const submitBtn = e.target.querySelector('button[type="submit"]');
@@ -255,8 +625,8 @@ document.getElementById('recoveryForm').addEventListener('submit', async (e) => 
         const email = document.getElementById('recoveryEmail').value;
         await sendPasswordResetEmail(auth, email);
         showSuccess('Se ha enviado un enlace de recuperación a tu email');
-        document.getElementById('recoveryForm').classList.remove('active');
-        document.getElementById('authForm').style.display = 'block';
+        if (recoveryForm) recoveryForm.classList.remove('active');
+        setAuthView('login');
     } catch (error) {
         showError('Error al enviar email de recuperación: ' + error.message);
     } finally {
@@ -279,6 +649,120 @@ function showSuccess(message) {
     toast.textContent = message;
     document.body.appendChild(toast);
     setTimeout(() => toast.remove(), 3000);
+}
+
+function showLoading(button) {
+    if (!button) return;
+    if (!button.dataset.originalContent) {
+        button.dataset.originalContent = button.innerHTML;
+    }
+    button.disabled = true;
+    button.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Procesando...';
+}
+
+function hideLoading(button) {
+    if (!button) return;
+    button.disabled = false;
+    if (button.dataset.originalContent) {
+        button.innerHTML = button.dataset.originalContent;
+        delete button.dataset.originalContent;
+    }
+}
+
+async function handleGoogleAuth(button, context = 'login') {
+    if (!button) {
+        console.warn('Google auth triggered without button element');
+    }
+
+    try {
+        if (button) {
+            showLoading(button);
+        }
+
+        const result = await signInWithPopup(auth, googleProvider);
+        const user = result.user;
+
+        await setDoc(doc(db, 'users', user.uid), {
+            email: user.email,
+            name: user.displayName || '',
+            photoURL: user.photoURL || null,
+            provider: 'google',
+            updatedAt: getChileDateTime()
+        }, { merge: true });
+
+        clearSharedSession();
+        const successMessage = context === 'register'
+            ? 'Registro con Google exitoso'
+            : 'Inicio de sesión con Google exitoso';
+        showSuccess(successMessage);
+    } catch (error) {
+        let errorMessage = 'No se pudo conectar con Google. Inténtalo nuevamente';
+
+        switch (error.code) {
+            case 'auth/popup-closed-by-user':
+                errorMessage = 'La ventana de Google se cerró antes de finalizar';
+                break;
+            case 'auth/cancelled-popup-request':
+                errorMessage = 'Ya hay otro proceso de autenticación en curso';
+                break;
+            case 'auth/account-exists-with-different-credential':
+                errorMessage = 'Ya existe una cuenta con otro método de acceso. Usa tu correo y contraseña.';
+                break;
+            default:
+                break;
+        }
+
+        showError(errorMessage);
+        console.error('Google Auth error:', error);
+    } finally {
+        if (button) {
+            hideLoading(button);
+        }
+    }
+}
+
+async function attemptSharedAccessLogin(email, password) {
+    try {
+        const normalizedEmail = normalizeEmail(email);
+        const passwordHash = await hashSharedPassword(password);
+        const accessQuery = query(
+            collection(db, 'sharedAccess'),
+            where('email', '==', normalizedEmail)
+        );
+        const snapshot = await getDocs(accessQuery);
+        if (snapshot.empty) {
+            return false;
+        }
+
+        let matchedEntry = null;
+        snapshot.forEach((docSnap) => {
+            const data = docSnap.data();
+            if (!matchedEntry && data.passwordHash === passwordHash) {
+                matchedEntry = { id: docSnap.id, ...data };
+            }
+        });
+
+        if (!matchedEntry) {
+            return false;
+        }
+
+        sharedSession = {
+            ownerId: matchedEntry.ownerId,
+            accessId: matchedEntry.id,
+            email: normalizedEmail,
+            ownerEmail: matchedEntry.ownerEmail || null,
+            createdAt: matchedEntry.createdAt
+        };
+        persistSharedSession();
+        updateSharedSessionBadge();
+        showSuccess('Acceso compartido habilitado');
+        await refreshApplicationState(auth.currentUser);
+        return true;
+    } catch (error) {
+        console.error('Error al validar acceso compartido:', error);
+        showError('No se pudo validar el acceso compartido');
+        return false;
+    }
 }
 
 // Eliminar este listener duplicado ya que tenemos uno más arriba que hace lo mismo
@@ -304,7 +788,7 @@ function showSuccess(message) {
 // });
 
 document.getElementById('logoutBtn').addEventListener('click', () => {
-    signOut(auth);
+    logoutWorkspace();
 });
 
 // Sales functionality
@@ -317,6 +801,8 @@ document.getElementById('saleForm').addEventListener('submit', async (e) => {
     const startDate = new Date(document.getElementById('startDate').value);
     const endDate = new Date(startDate);
     endDate.setDate(startDate.getDate() + durationInDays);
+    const linkedProductId = saleProductSelect?.value || '';
+    const linkedProfile = (saleProductProfileInput?.value || '').trim();
 
     const sale = {
         product: document.getElementById('productName').value,
@@ -329,7 +815,7 @@ document.getElementById('saleForm').addEventListener('submit', async (e) => {
         startDate: startDate.toISOString(),
         endDate: endDate.toISOString(),
         status: document.getElementById('saleStatus').value,
-        userId: auth.currentUser.uid,
+        userId: getActiveUserId(),
         createdAt: getChileDateTime(), // Fecha real de creación del registro
         whatsapp: document.getElementById('whatsapp').value,
         email: document.getElementById('email').value,
@@ -340,7 +826,9 @@ document.getElementById('saleForm').addEventListener('submit', async (e) => {
             password: document.getElementById('accountPassword').value || null,
             profile: document.getElementById('accountProfile').value || null,
             pin: document.getElementById('profilePin').value || null
-        }
+        },
+        productId: linkedProductId || null,
+        productProfile: linkedProfile || null
     };
 
     try {
@@ -462,15 +950,15 @@ async function loadSales() {
     salesList.innerHTML = '<div class="col-12 text-center"><div class="loading"></div></div>';
     
     try {
-        // Verificar si hay un usuario autenticado
-        if (!auth.currentUser) {
-            throw new Error('No hay usuario autenticado');
+        const ownerId = getActiveUserId();
+        if (!ownerId) {
+            throw new Error('No hay espacio de trabajo activo');
         }
 
         // Crear query explícitamente filtrado por userId
         const salesQuery = query(
             collection(db, 'sales'),
-            where('userId', '==', auth.currentUser.uid)
+            where('userId', '==', ownerId)
         );
         
         // Limpiar el array de ventas actuales
@@ -493,8 +981,7 @@ async function loadSales() {
 
         querySnapshot.forEach((doc) => {
             const sale = {...doc.data(), id: doc.id};
-            // Verificar que la venta pertenezca al usuario actual
-            if (sale.userId === auth.currentUser.uid) {
+            if (sale.userId === ownerId) {
                 currentSales.push(sale);
             }
         });
@@ -511,6 +998,81 @@ async function loadSales() {
             </div>
         `;
     }
+}
+
+async function loadProducts() {
+    const ownerId = getActiveUserId();
+    if (!ownerId) {
+        inventoryProducts = [];
+        populateSaleProductOptions();
+        return;
+    }
+
+    try {
+        const productsQuery = query(
+            collection(db, 'products'),
+            where('userId', '==', ownerId)
+        );
+        const snapshot = await getDocs(productsQuery);
+        inventoryProducts = snapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() }));
+    } catch (error) {
+        console.error('Error al cargar productos de inventario:', error);
+        inventoryProducts = [];
+    }
+
+    populateSaleProductOptions();
+}
+
+function populateSaleProductOptions() {
+    const selects = [
+        { select: saleProductSelect, helper: saleProductInfo },
+        { select: editSaleProductSelect, helper: editSaleProductInfo }
+    ];
+
+    const options = ['<option value="">Sin vincular con inventario</option>'];
+    inventoryProducts.forEach(product => {
+        const profileSlots = Number(product.profileSlots) || 0;
+        const label = profileSlots ? `${product.name} (${profileSlots} perfiles)` : product.name;
+        options.push(`<option value="${product.id}">${label}</option>`);
+    });
+
+    selects.forEach(({ select }) => {
+        if (!select) return;
+        const previousValue = select.value;
+        select.innerHTML = options.join('');
+        if (previousValue && inventoryProducts.some(product => product.id === previousValue)) {
+            select.value = previousValue;
+        }
+    });
+
+    selects.forEach(({ select, helper }) => bindProductHelper(select, helper));
+}
+
+function bindProductHelper(select, helper) {
+    if (!select || !helper) return;
+
+    if (!productHelperDefaults.has(helper)) {
+        productHelperDefaults.set(helper, helper.textContent || '');
+    }
+
+    const updateHelper = () => {
+        const product = inventoryProducts.find(item => item.id === select.value);
+        if (product) {
+            const profileSlots = Number(product.profileSlots) || 0;
+            helper.textContent = profileSlots > 0
+                ? `${profileSlots} perfiles totales. Usa el campo de perfil asignado para registrar qué cupo ocupaste.`
+                : 'Este producto no tiene perfiles configurados. Ajusta sus cupos desde Inventario.';
+        } else {
+            helper.textContent = productHelperDefaults.get(helper) || '';
+        }
+    };
+
+    if (!select.dataset.helperBound) {
+        select.addEventListener('change', updateHelper);
+        select.dataset.helperBound = 'true';
+    }
+
+    updateHelper();
 }
 
 // Función para renderizar las ventas filtradas
@@ -630,9 +1192,12 @@ function renderSales(sales) {
 // Add function to handle filters
 async function loadFilters() {
     try {
+        const ownerId = getActiveUserId();
+        if (!ownerId) return;
+
         const filtersQuery = query(
             collection(db, 'filters'),
-            where('userId', '==', auth.currentUser.uid)
+            where('userId', '==', ownerId)
         );
         
         const snapshot = await getDocs(filtersQuery);
@@ -669,13 +1234,18 @@ document.getElementById('filterForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     
     try {
+        const ownerId = getActiveUserId();
+        if (!ownerId) {
+            throw new Error('No hay usuario activo');
+        }
+
         const filterData = {
             name: document.getElementById('filterName').value,
             keywords: document.getElementById('filterKeywords').value
                 .split(',')
                 .map(k => k.trim().toLowerCase())
                 .filter(k => k),
-            userId: auth.currentUser.uid,
+            userId: ownerId,
             createdAt: getChileDateTime()
         };
         
@@ -706,6 +1276,155 @@ window.applyFilter = async function(filterId) {
         applyFiltersAndSort();
     } catch (error) {
         showError('Error al aplicar filtro: ' + error.message);
+    }
+};
+
+if (sharedAccessForm) {
+    sharedAccessForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+
+        if (!isOwnerSessionActive()) {
+            showError('Solo el propietario puede crear accesos compartidos');
+            return;
+        }
+
+        const submitBtn = sharedAccessForm.querySelector('button[type="submit"]');
+        showLoading(submitBtn);
+
+        try {
+            const ownerId = auth.currentUser?.uid;
+            if (!ownerId) {
+                throw new Error('Debes iniciar sesión con tu cuenta principal');
+            }
+
+            const aliasInputValue = sharedAccessAliasInput?.value || '';
+            const alias = sanitizeAlias(aliasInputValue);
+            if (!alias || alias.length < 3) {
+                throw new Error('El alias debe tener al menos 3 caracteres válidos');
+            }
+            if (sharedAccessAliasInput && sharedAccessAliasInput.value !== alias) {
+                sharedAccessAliasInput.value = alias;
+            }
+            const email = buildSharedEmail(alias);
+            const password = document.getElementById('sharedAccessPassword').value.trim();
+
+            if (!email || !password) {
+                throw new Error('Completa todos los campos');
+            }
+
+            let aliasAvailable = lastAliasCheck.alias === alias ? lastAliasCheck.available : null;
+            if (aliasAvailable === null) {
+                aliasAvailable = await isAliasAvailable(alias);
+            }
+            if (!aliasAvailable) {
+                throw new Error('Alias no disponible. Elige otro nombre.');
+            }
+
+            const passwordHash = await hashSharedPassword(password);
+
+            await addDoc(collection(db, 'sharedAccess'), {
+                ownerId,
+                ownerEmail: auth.currentUser.email,
+                email,
+                passwordHash,
+                plainPassword: password,
+                createdAt: getChileDateTime()
+            });
+
+            sharedAccessForm.reset();
+            lastAliasCheck = { alias: '', available: null };
+            if (sharedPasswordHelper) {
+                sharedPasswordHelper.textContent = `Comparte estas credenciales: ${email} / ${password}. También quedarán visibles en la lista de colaboradores.`;
+                sharedPasswordHelper.classList.remove('text-muted');
+                sharedPasswordHelper.classList.add('text-success');
+            }
+            setAliasHelperState(`${email} creado correctamente`, 'success');
+            await loadSharedAccessEntries();
+            showSuccess('Acceso compartido creado');
+        } catch (error) {
+            showError(error.message || 'Error al crear acceso');
+        } finally {
+            hideLoading(submitBtn);
+        }
+    });
+}
+
+async function loadSharedAccessEntries() {
+    const list = document.getElementById('sharedAccessList');
+    const count = document.getElementById('sharedAccessCount');
+    if (!list || !isOwnerSessionActive()) {
+        if (list && !isOwnerSessionActive()) {
+            list.innerHTML = '<p class="text-muted mb-0">Inicia sesión con la cuenta principal para gestionar colaboradores.</p>';
+        }
+        if (count) count.textContent = '0 activos';
+        sharedAccessEntries = [];
+        return;
+    }
+
+    try {
+        const ownerId = auth.currentUser?.uid;
+        if (!ownerId) return;
+        const accessQuery = query(
+            collection(db, 'sharedAccess'),
+            where('ownerId', '==', ownerId)
+        );
+        const snapshot = await getDocs(accessQuery);
+        sharedAccessEntries = snapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() }));
+        renderSharedAccessList();
+    } catch (error) {
+        console.error('Error al cargar colaboradores:', error);
+        if (list) {
+            list.innerHTML = '<p class="text-danger mb-0">Error al cargar colaboradores.</p>';
+        }
+    }
+}
+
+function renderSharedAccessList() {
+    const list = document.getElementById('sharedAccessList');
+    const count = document.getElementById('sharedAccessCount');
+    if (!list) return;
+
+    if (!sharedAccessEntries.length) {
+        list.innerHTML = '<p class="text-muted mb-0">No has agregado colaboradores.</p>';
+    } else {
+        list.innerHTML = sharedAccessEntries.map(entry => `
+            <div class="shared-access-entry">
+                <div class="shared-access-info">
+                    <strong>${entry.email}</strong>
+                    <div class="access-meta">Creado el ${formatChileDate(entry.createdAt)}</div>
+                    <div class="shared-password">
+                        ${entry.plainPassword
+                            ? `<span>Contraseña:</span> <code>${entry.plainPassword}</code>`
+                            : '<span class="text-muted">Contraseña no disponible</span>'}
+                    </div>
+                </div>
+                <div class="shared-access-actions">
+                    <button class="btn btn-sm btn-outline-danger" onclick="removeSharedAccess('${entry.id}')">
+                        <i class="fas fa-user-minus me-1"></i>Revocar
+                    </button>
+                </div>
+            </div>
+        `).join('');
+    }
+
+    if (count) {
+        count.textContent = `${sharedAccessEntries.length} activos`;
+    }
+}
+
+window.removeSharedAccess = async (accessId) => {
+    if (!isOwnerSessionActive()) {
+        showError('Solo el propietario puede revocar accesos');
+        return;
+    }
+
+    if (!confirm('¿Eliminar el acceso compartido seleccionado?')) return;
+    try {
+        await deleteDoc(doc(db, 'sharedAccess', accessId));
+        await loadSharedAccessEntries();
+        showSuccess('Acceso revocado');
+    } catch (error) {
+        showError('No se pudo revocar el acceso');
     }
 };
 
@@ -762,6 +1481,12 @@ async function fillEditModal(saleId) {
     try {
         const saleDoc = await getDoc(doc(db, 'sales', saleId));
         const sale = saleDoc.data();
+
+        if (!inventoryProducts.length) {
+            await loadProducts();
+        } else {
+            populateSaleProductOptions();
+        }
         
         document.getElementById('editSaleId').value = saleId;
         document.getElementById('editProductName').value = sale.product;
@@ -778,6 +1503,14 @@ async function fillEditModal(saleId) {
             document.getElementById('editAccountPassword').value = sale.accountCredentials.password || '';
             document.getElementById('editAccountProfile').value = sale.accountCredentials.profile || '';
             document.getElementById('editProfilePin').value = sale.accountCredentials.pin || '';
+        }
+
+        if (editSaleProductSelect) {
+            editSaleProductSelect.value = sale.productId || '';
+            editSaleProductSelect.dispatchEvent(new Event('change'));
+        }
+        if (editSaleProductProfileInput) {
+            editSaleProductProfileInput.value = sale.productProfile || '';
         }
         
         new bootstrap.Modal(document.getElementById('editModal')).show();
@@ -819,7 +1552,9 @@ async function fillRenewModal(saleId) {
             notes: sale.notes || '',
             accountCredentials: sale.accountCredentials || {},
             userId: sale.userId,
-            endDate: sale.endDate
+            endDate: sale.endDate,
+            productId: sale.productId || null,
+            productProfile: sale.productProfile || null
         });
         
         // Remove remaining days info since it's expired
@@ -841,6 +1576,8 @@ async function fillRenewModal(saleId) {
 document.getElementById('editForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     const saleId = document.getElementById('editSaleId').value;
+    const linkedProductId = editSaleProductSelect?.value || '';
+    const linkedProfile = (editSaleProductProfileInput?.value || '').trim();
     
     try {
         await updateDoc(doc(db, 'sales', saleId), {
@@ -858,6 +1595,8 @@ document.getElementById('editForm').addEventListener('submit', async (e) => {
                 profile: document.getElementById('editAccountProfile').value || null,
                 pin: document.getElementById('editProfilePin').value || null
             },
+            productId: linkedProductId || null,
+            productProfile: linkedProfile || null,
             updatedAt: getChileDateTime() // Agregar timestamp de actualización
         });
         
@@ -1097,11 +1836,12 @@ function animateNumber(element, start, end) {
 // Add trash management functions
 async function updateTrashCount() {
     try {
-        if (!auth.currentUser) return;
+        const ownerId = getActiveUserId();
+        if (!ownerId) return;
 
         const trashQuery = query(
             collection(db, 'trash'),
-            where('userId', '==', auth.currentUser.uid)
+            where('userId', '==', ownerId)
         );
         
         const trashSnapshot = await getDocs(trashQuery);
@@ -1118,13 +1858,14 @@ async function loadTrashItems() {
     trashList.innerHTML = '<div class="text-center"><div class="spinner-border"></div></div>';
     
     try {
-        if (!auth.currentUser) {
-            throw new Error('No hay usuario autenticado');
+        const ownerId = getActiveUserId();
+        if (!ownerId) {
+            throw new Error('No hay usuario activo');
         }
 
         const trashQuery = query(
             collection(db, 'trash'),
-            where('userId', '==', auth.currentUser.uid)
+            where('userId', '==', ownerId)
         );
         
         const snapshot = await getDocs(trashQuery);
@@ -1179,7 +1920,7 @@ window.restoreFromTrash = async (trashId) => {
         const itemData = trashDoc.data();
         
         // Verificar que el elemento pertenezca al usuario actual
-        if (itemData.userId !== auth.currentUser.uid) {
+        if (itemData.userId !== getActiveUserId()) {
             throw new Error('No tienes permiso para restaurar este elemento');
         }
         
@@ -1189,7 +1930,7 @@ window.restoreFromTrash = async (trashId) => {
         // Restore to sales collection
         await addDoc(collection(db, 'sales'), {
             ...saleData,
-            userId: auth.currentUser.uid
+            userId: getActiveUserId()
         });
         
         // Remove from trash
@@ -1220,9 +1961,13 @@ window.deleteFromTrash = async (trashId) => {
 window.emptyTrash = async () => {
     if (confirm('¿Estás seguro de vaciar la papelera? Esta acción no se puede deshacer.')) {
         try {
+            const ownerId = getActiveUserId();
+            if (!ownerId) {
+                throw new Error('No hay usuario activo');
+            }
             const trashQuery = query(
                 collection(db, 'trash'),
-                where('userId', '==', auth.currentUser.uid)
+                where('userId', '==', ownerId)
             );
             
             const snapshot = await getDocs(trashQuery);
@@ -1243,27 +1988,73 @@ document.getElementById('trashModal').addEventListener('show.bs.modal', () => {
     loadTrashItems();
 });
 
+const collaboratorsModal = document.getElementById('collaboratorsModal');
+if (collaboratorsModal) {
+    collaboratorsModal.addEventListener('show.bs.modal', () => {
+        if (isOwnerSessionActive()) {
+            loadSharedAccessEntries();
+        }
+    });
+}
+
 // Agregar event listener para ordenamiento
 window.applySorting = function() {
     applyFiltersAndSort();
 };
 
-// Modificar el observer de autenticación
 auth.onAuthStateChanged(async (user) => {
-    if (!user) {
-        clearAutoUpdates();
+    if (user && isSharedSessionActive()) {
+        clearSharedSession();
     }
+    await refreshApplicationState(user);
+});
+
+async function refreshApplicationState(user) {
+    const splashScreen = document.getElementById('splashScreen');
+    const authContainer = document.getElementById('authContainer');
+    const dashboardContainer = document.getElementById('dashboardContainer');
+    const activeUserId = getActiveUserId();
+
+    if (!activeUserId) {
+        clearAutoUpdates();
+        currentSales = [];
+        currentFilter = null;
+        updateDashboardStats({ active: 0, nearExpiry: 0, expiringToday: 0, expired: 0, totalAmount: 0 });
+        if (authContainer && dashboardContainer) {
+            authContainer.style.display = 'block';
+            dashboardContainer.style.display = 'none';
+        }
+        document.getElementById('salesList').innerHTML = '';
+        document.getElementById('filtersList').innerHTML = '';
+        document.getElementById('trashCount').textContent = '0';
+        updateSharedSessionBadge();
+        if (splashScreen) {
+            splashScreen.classList.add('fade-out');
+            setTimeout(() => {
+                splashScreen.style.display = 'none';
+            }, 300);
+        }
+        return;
+    }
+
     try {
-        // Verificar el estado de verificación del usuario
-        if (user) {
-            const userDoc = await getDoc(doc(db, 'users', user.uid));
-            const userData = userDoc.data();
-            
-            // Actualizar el badge de verificación
-            const verificationBadge = document.getElementById('verificationBadge');
-            if (userData?.isVerified) {
+        if (isSharedSessionActive()) {
+            const isValid = await validateSharedAccessState();
+            if (!isValid) {
+                await refreshApplicationState(auth.currentUser);
+                return;
+            }
+        }
+
+        const verificationBadge = document.getElementById('verificationBadge');
+        const ownerDoc = await getDoc(doc(db, 'users', activeUserId));
+        const ownerData = ownerDoc.data();
+
+        if (verificationBadge) {
+            if (ownerData?.isVerified) {
                 verificationBadge.className = 'badge bg-success';
                 verificationBadge.innerHTML = '<i class="fas fa-check-circle"></i> Cuenta verificada';
+                verificationBadge.onclick = null;
             } else {
                 verificationBadge.className = 'badge bg-warning cursor-pointer';
                 verificationBadge.innerHTML = '<i class="fas fa-exclamation-circle"></i> Cuenta sin verificar';
@@ -1273,48 +2064,32 @@ auth.onAuthStateChanged(async (user) => {
             }
         }
 
-        // Limpiar datos anteriores
-        currentSales = [];
-        currentFilter = null;
-        
-        // Resetear estadísticas
-        updateDashboardStats({
-            active: 0,
-            nearExpiry: 0,
-            expiringToday: 0,
-            expired: 0,
-            totalAmount: 0
-        });
-        
-        // Actualizar visibilidad de contenedores
-        document.getElementById('authContainer').style.display = user ? 'none' : 'block';
-        document.getElementById('dashboardContainer').style.display = user ? 'block' : 'none';
-        
-        if (user) {
-            // Cargar datos del usuario actual
-            await Promise.all([
-                loadSales(),
-                loadFilters(),
-                updateTrashCount()
-            ]);
-        } else {
-            // Limpiar interfaz cuando no hay usuario
-            document.getElementById('salesList').innerHTML = '';
-            document.getElementById('filtersList').innerHTML = '';
-            document.getElementById('trashCount').textContent = '0';
+        if (authContainer && dashboardContainer) {
+            authContainer.style.display = 'none';
+            dashboardContainer.style.display = 'block';
         }
+
+        updateSharedSessionBadge();
+
+        await Promise.all([
+            loadSales(),
+            loadProducts(),
+            loadFilters(),
+            updateTrashCount(),
+            isOwnerSessionActive() ? loadSharedAccessEntries() : Promise.resolve()
+        ]);
     } catch (error) {
         console.error('Error durante la inicialización:', error);
         showError('Error al cargar la aplicación');
     } finally {
-        // Ocultar pantalla de carga con animación
-        const splashScreen = document.getElementById('splashScreen');
-        splashScreen.classList.add('fade-out');
-        setTimeout(() => {
-            splashScreen.style.display = 'none';
-        }, 300);
+        if (splashScreen) {
+            splashScreen.classList.add('fade-out');
+            setTimeout(() => {
+                splashScreen.style.display = 'none';
+            }, 300);
+        }
     }
-});
+}
 
 // Agregar el manejador del formulario de verificación
 document.getElementById('verificationForm').addEventListener('submit', async (e) => {
@@ -1331,7 +2106,12 @@ document.getElementById('verificationForm').addEventListener('submit', async (e)
         }
 
         // Si el código es correcto, actualizar el estado de verificación
-        await setDoc(doc(db, 'users', auth.currentUser.uid), {
+        const ownerId = getActiveUserId();
+        if (!ownerId) {
+            throw new Error('No hay usuario activo para verificar');
+        }
+
+        await setDoc(doc(db, 'users', ownerId), {
             isVerified: true,
             verifiedAt: new Date().toISOString()
         }, { merge: true });
@@ -1361,7 +2141,7 @@ window.deleteSale = async (saleId) => {
             const saleData = saleDoc.data();
             
             // Verificar que la venta pertenezca al usuario actual
-            if (saleData.userId !== auth.currentUser.uid) {
+            if (saleData.userId !== getActiveUserId()) {
                 throw new Error('No tienes permiso para eliminar esta venta');
             }
             
@@ -1369,7 +2149,7 @@ window.deleteSale = async (saleId) => {
                 ...saleData,
                 originalId: saleId,
                 deletedAt: getChileDateTime(),
-                userId: auth.currentUser.uid
+                userId: getActiveUserId()
             });
             
             await deleteDoc(doc(db, 'sales', saleId));
@@ -1391,7 +2171,7 @@ window.toggleStatus = async (saleId, currentStatus) => {
         const saleData = saleDoc.data();
 
         // Verificar que la venta pertenezca al usuario actual
-        if (saleData.userId !== auth.currentUser.uid) {
+        if (saleData.userId !== getActiveUserId()) {
             throw new Error('No tienes permiso para modificar esta venta');
         }
 
@@ -1419,15 +2199,30 @@ Object.assign(window, {
     applySorting,
     emptyTrash,
     restoreFromTrash,
+    removeSharedAccess,
     deleteFromTrash,
     togglePassword,
     toggleStatus, // Agregar toggleStatus a la lista
-    deleteSale
+    deleteSale,
+    deleteProduct
 });
 
 // Agregar después de la inicialización de la aplicación
 const shareButton = document.getElementById('shareButton');
 const shareModal = new bootstrap.Modal(document.getElementById('shareModal'));
+const collaboratorGuideModalElement = document.getElementById('collaboratorGuideModal');
+const collaboratorGuideTriggers = document.querySelectorAll('#openCollaboratorGuide, #collaboratorHelpLink');
+let collaboratorGuideModal = null;
+
+if (collaboratorGuideModalElement) {
+    collaboratorGuideModal = new bootstrap.Modal(collaboratorGuideModalElement);
+    collaboratorGuideTriggers.forEach((trigger) => {
+        trigger.addEventListener('click', (e) => {
+            e.preventDefault();
+            collaboratorGuideModal.show();
+        });
+    });
+}
 
 // Configuración para compartir
 const shareData = {
@@ -1504,6 +2299,13 @@ document.getElementById('forumButton').addEventListener('click', () => {
     window.location.href = 'forum.html';
 });
 
+const inventoryButton = document.getElementById('inventoryButton');
+if (inventoryButton) {
+    inventoryButton.addEventListener('click', () => {
+        window.location.href = 'inventory.html';
+    });
+}
+
 // Eliminar el código del modal de tutoriales que ya no se usará
 
 // Agregar función para actualizar una suscripción específica
@@ -1551,9 +2353,6 @@ async function updateSaleStatus(saleId) {
         console.error('Error actualizando estado de suscripción:', error);
     }
 }
-
-// Agregar sistema de actualización automática
-let updateIntervals = new Map();
 
 function startAutoUpdates(sales) {
     // Limpiar intervalos anteriores

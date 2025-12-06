@@ -30,66 +30,195 @@
         <!-- Auth Container -->
         <div id="authContainer" class="container mt-5">
             <div class="row justify-content-center">
-                <div class="col-md-5">
-                    <div class="card auth-card">
-                        <div class="card-body p-4">
-                            <div class="text-center mb-4">
-                                <img src="SellStream.png" alt="SellStream Logo" class="img-fluid mb-3" style="max-width: 200px;">
-                                <h2 class="fw-bold">SellStream</h2>
+                <div class="col-12">
+                    <div class="auth-layout">
+                        <div class="auth-showcase">
+                            <div class="showcase-badge">
+                                <i class="fas fa-bolt me-2"></i>SellStream Insights
                             </div>
-                            <div class="auth-form-container">
-                                <!-- Login Form -->
-                                <form id="authForm" class="auth-form login-form">
-                                    <div class="mb-3">
-                                        <!-- Asegurarse de que el ID sea loginEmail -->
-                                        <input type="email" id="loginEmail" class="form-control" placeholder="Email" required>
+                            <h1 class="display-6 fw-bold mt-3">Gestiona tus suscripciones como un equipo profesional</h1>
+                            <p class="lead">Centraliza ventas recurrentes, recibe alertas inteligentes y comparte acceso seguro con tu equipo.</p>
+                            <ul class="auth-feature-list list-unstyled mt-4">
+                                <li><i class="fas fa-check-circle me-2"></i>Panel en tiempo real con métricas clave</li>
+                                <li><i class="fas fa-check-circle me-2"></i>Historial y renovaciones en un click</li>
+                                <li><i class="fas fa-check-circle me-2"></i>Integración instantánea con Google</li>
+                            </ul>
+                            <div class="auth-stats mt-5">
+                                <div class="auth-stat">
+                                    <span class="stat-label">Clientes activos</span>
+                                    <span class="stat-value">+250</span>
+                                </div>
+                                <div class="auth-stat">
+                                    <span class="stat-label">Tiempo ahorrado</span>
+                                    <span class="stat-value">12h/sem</span>
+                                </div>
+                                <div class="auth-stat">
+                                    <span class="stat-label">Satisfacción</span>
+                                    <span class="stat-value">4.9/5</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="auth-panel">
+                            <div class="card auth-card">
+                                <div class="card-body p-4 p-lg-5">
+                                    <div class="auth-brand text-center mb-4">
+                                        <span class="brand-pill">SellStream Suite</span>
+                                        <h2 class="fw-bold mt-3 mb-2">Bienvenido de nuevo</h2>
+                                        <p class="text-muted mb-0">Inicia sesión o crea tu cuenta para continuar</p>
                                     </div>
-                                    <div class="mb-3">
-                                        <!-- Asegurarse de que el ID sea loginPassword -->
-                                        <input type="password" id="loginPassword" class="form-control" placeholder="Contraseña" required>
-                                        <div class="text-end mt-1">
-                                            <a href="#" class="forgot-password" id="forgotPasswordLink">¿Olvidaste tu contraseña?</a>
+                                    <div class="auth-tabs mb-4">
+                                        <button type="button" class="auth-tab active" id="authTabLogin" data-view="login">
+                                            <i class="fas fa-lock me-2"></i>Iniciar Sesión
+                                        </button>
+                                        <button type="button" class="auth-tab" id="authTabRegister" data-view="register">
+                                            <i class="fas fa-user-plus me-2"></i>Registrarse
+                                        </button>
+                                    </div>
+                                    <div class="auth-form-container">
+                                        <!-- Login Form -->
+                                        <form id="authForm" class="auth-form login-form active">
+                                            <div class="mb-3">
+                                                <label for="loginEmail" class="form-label">Correo electrónico</label>
+                                                <div class="input-with-icon">
+                                                    <i class="fas fa-envelope"></i>
+                                                    <input type="email" id="loginEmail" class="form-control" placeholder="tuemail@empresa.com" required>
+                                                </div>
+                                            </div>
+                                            <div class="mb-3">
+                                                <div class="d-flex justify-content-between align-items-center">
+                                                    <label for="loginPassword" class="form-label mb-0">Contraseña</label>
+                                                    <a href="#" class="forgot-password" id="forgotPasswordLink">¿Olvidaste tu contraseña?</a>
+                                                </div>
+                                                <div class="input-with-icon">
+                                                    <i class="fas fa-key"></i>
+                                                    <input type="password" id="loginPassword" class="form-control" placeholder="Ingresa tu contraseña" required>
+                                                </div>
+                                            </div>
+                                            <button type="submit" class="btn btn-primary w-100 mb-3">Ingresar al panel</button>
+                                            <div class="auth-divider mb-3">
+                                                <span>O continúa con</span>
+                                            </div>
+                                            <button type="button" class="btn btn-outline-dark w-100 mb-3 google-btn" id="googleLoginBtn">
+                                                <i class="fab fa-google me-2"></i>Google
+                                            </button>
+                                            <p class="text-center mb-0">
+                                                ¿No tienes cuenta? 
+                                                <a class="auth-toggle" id="showRegisterForm">Regístrate aquí</a>
+                                            </p>
+                                            <div class="collaborator-callout mt-4">
+                                                <div class="d-flex align-items-center mb-2">
+                                                    <i class="fas fa-users me-2 text-primary"></i>
+                                                    <strong>¿Eres colaborador?</strong>
+                                                </div>
+                                                <p class="mb-3 small text-muted">Accede con el alias que te compartieron. Nosotros completamos el dominio y conectamos tu sesión compartida.</p>
+                                                <div class="d-grid gap-2">
+                                                    <button type="button" class="btn btn-outline-primary w-100" id="openCollaboratorLogin">
+                                                        Iniciar como colaborador
+                                                    </button>
+                                                    <button type="button" class="btn btn-link text-decoration-none p-0" id="openCollaboratorGuide">
+                                                        Ver instrucciones rápidas
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </form>
+
+                                        <!-- Register Form -->
+                                        <form id="registerForm" class="auth-form register-form">
+                                            <div class="mb-3">
+                                                <label for="registerName" class="form-label">Nombre completo</label>
+                                                <div class="input-with-icon">
+                                                    <i class="fas fa-user"></i>
+                                                    <input type="text" id="registerName" class="form-control" placeholder="Ej: Camila Soto" required>
+                                                </div>
+                                            </div>
+                                            <div class="mb-3">
+                                                <label for="registerEmail" class="form-label">Correo corporativo</label>
+                                                <div class="input-with-icon">
+                                                    <i class="fas fa-envelope"></i>
+                                                    <input type="email" id="registerEmail" class="form-control" placeholder="equipo@sellstream.com" required>
+                                                </div>
+                                            </div>
+                                            <div class="mb-3">
+                                                <label for="registerPassword" class="form-label">Contraseña</label>
+                                                <div class="input-with-icon">
+                                                    <i class="fas fa-key"></i>
+                                                    <input type="password" id="registerPassword" class="form-control" placeholder="Crea una contraseña segura" required>
+                                                </div>
+                                            </div>
+                                            <div class="mb-3">
+                                                <label for="registerPasswordConfirm" class="form-label">Confirmar contraseña</label>
+                                                <div class="input-with-icon">
+                                                    <i class="fas fa-check"></i>
+                                                    <input type="password" id="registerPasswordConfirm" class="form-control" placeholder="Repite la contraseña" required>
+                                                </div>
+                                            </div>
+                                            <button type="submit" class="btn btn-primary w-100 mb-3">Crear cuenta</button>
+                                            <div class="auth-divider mb-3">
+                                                <span>O continúa con</span>
+                                            </div>
+                                            <button type="button" class="btn btn-outline-dark w-100 mb-3 google-btn" id="googleRegisterBtn">
+                                                <i class="fab fa-google me-2"></i>Google
+                                            </button>
+                                            <p class="text-center mb-0">
+                                                ¿Ya tienes cuenta? 
+                                                <a class="auth-toggle" id="showLoginForm">Inicia sesión aquí</a>
+                                            </p>
+                                        </form>
+
+                                        <!-- Password Recovery Form -->
+                                        <form id="recoveryForm" class="recovery-form">
+                                            <div class="mb-3">
+                                                <p class="text-muted">Ingresa tu email para recuperar tu contraseña. Si no ves el correo en unos minutos, revisa la carpeta de spam con el remitente sellstream.trustzonestore.com.</p>
+                                                <div class="input-with-icon">
+                                                    <i class="fas fa-envelope-open"></i>
+                                                    <input type="email" id="recoveryEmail" class="form-control" placeholder="Email" required>
+                                                </div>
+                                            </div>
+                                            <button type="submit" class="btn btn-primary w-100 mb-3">Enviar enlace de recuperación</button>
+                                            <p class="text-center mb-0">
+                                                <a class="auth-toggle" id="backToLogin">Volver al inicio de sesión</a>
+                                            </p>
+                                        </form>
+
+                                        <!-- Collaborator Login Form -->
+                                        <form id="collaboratorLoginForm" class="auth-form collaborator-form">
+                                            <div class="text-center mb-4">
+                                                <span class="collaborator-pill">Acceso de colaborador</span>
+                                                <h3 class="fw-bold mt-3 mb-2">Ingresa con tu alias</h3>
+                                                <p class="text-muted small mb-0">Solo necesitas el alias asignado y la contraseña temporal que recibiste.</p>
+                                            </div>
+                                            <div class="mb-3">
+                                                <label for="collaboratorAlias" class="form-label">Alias asignado</label>
+                                                <div class="input-group collaborator-alias-group">
+                                                    <span class="input-group-text">@</span>
+                                                    <input type="text" id="collaboratorAlias" class="form-control" placeholder="equipo.ventas" minlength="3" maxlength="30" required>
+                                                    <span class="input-group-text">@sellstream.trustzonestore.com</span>
+                                                </div>
+                                                <small class="text-muted">No escribas el correo completo, solo el alias.</small>
+                                            </div>
+                                            <div class="mb-4">
+                                                <label for="collaboratorPassword" class="form-label">Contraseña temporal</label>
+                                                <div class="input-with-icon">
+                                                    <i class="fas fa-key"></i>
+                                                    <input type="password" id="collaboratorPassword" class="form-control" placeholder="Ingresa la contraseña compartida" minlength="6" required>
+                                                </div>
+                                            </div>
+                                            <button type="submit" class="btn btn-primary w-100 mb-3">Ingresar como colaborador</button>
+                                            <button type="button" class="btn btn-outline-secondary w-100 mb-2" id="backToOwnerAuth">
+                                                Volver al inicio principal
+                                            </button>
+                                            <button type="button" class="btn btn-link w-100 text-decoration-none" id="collaboratorHelpLink">
+                                                ¿Necesitas ayuda? Ver guía rápida
+                                            </button>
+                                        </form>
+                                    </div>
+                                    <div class="auth-security mt-4">
+                                        <div class="d-flex align-items-center">
+                                            <span class="security-badge"><i class="fas fa-shield-alt me-2"></i>Seguridad empresarial</span>
+                                            <p class="mb-0 ms-3 text-muted small">Datos cifrados y autenticación protegida por Firebase</p>
                                         </div>
                                     </div>
-                                    <button type="submit" class="btn btn-primary w-100 mb-3">Iniciar Sesión</button>
-                                    <p class="text-center mb-0">
-                                        ¿No tienes cuenta? 
-                                        <a class="auth-toggle" id="showRegisterForm">Regístrate aquí</a>
-                                    </p>
-                                </form>
-
-                                <!-- Register Form -->
-                                <form id="registerForm" class="auth-form register-form">
-                                    <div class="mb-3">
-                                        <input type="text" id="registerName" class="form-control" placeholder="Nombre completo" required>
-                                    </div>
-                                    <div class="mb-3">
-                                        <input type="email" id="registerEmail" class="form-control" placeholder="Email" required>
-                                    </div>
-                                    <div class="mb-3">
-                                        <input type="password" id="registerPassword" class="form-control" placeholder="Contraseña" required>
-                                    </div>
-                                    <div class="mb-3">
-                                        <input type="password" id="registerPasswordConfirm" class="form-control" placeholder="Confirmar contraseña" required>
-                                    </div>
-                                    <button type="submit" class="btn btn-primary w-100 mb-3">Registrarse</button>
-                                    <p class="text-center mb-0">
-                                        ¿Ya tienes cuenta? 
-                                        <a class="auth-toggle" id="showLoginForm">Inicia sesión aquí</a>
-                                    </p>
-                                </form>
-
-                                <!-- Password Recovery Form -->
-                                <form id="recoveryForm" class="recovery-form">
-                                    <div class="mb-3">
-                                        <p class="text-muted">Ingresa tu email para recuperar tu contraseña</p>
-                                        <input type="email" id="recoveryEmail" class="form-control" placeholder="Email" required>
-                                    </div>
-                                    <button type="submit" class="btn btn-primary w-100 mb-3">Enviar enlace de recuperación</button>
-                                    <p class="text-center mb-0">
-                                        <a class="auth-toggle" id="backToLogin">Volver al inicio de sesión</a>
-                                    </p>
-                                </form>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -109,11 +238,17 @@
                         <button class="btn btn-light me-2" id="shareButton">
                             <i class="fas fa-share-alt me-2"></i>Compartir
                         </button>
+                        <button class="btn btn-light me-2" id="collaboratorsButton" data-bs-toggle="modal" data-bs-target="#collaboratorsModal">
+                            <i class="fas fa-user-friends me-2"></i>Colaboradores
+                        </button>
                         <button class="btn btn-light me-2" id="tutorialsButton">
                             <i class="fas fa-play-circle me-2"></i>Tutoriales
                         </button>
                         <button class="btn btn-light me-2" id="forumButton">
                             <i class="fas fa-comments me-2"></i>Foro
+                        </button>
+                        <button class="btn btn-light me-2" id="inventoryButton">
+                            <i class="fas fa-boxes me-2"></i>Inventario
                         </button>
                         <button class="btn btn-light me-2" data-bs-toggle="modal" data-bs-target="#trashModal">
                             <i class="fas fa-trash me-2"></i>Papelera
@@ -133,6 +268,9 @@
                     </div>
                     <span id="verificationBadge" class="badge bg-warning">
                         <i class="fas fa-exclamation-circle"></i> Cuenta sin verificar
+                    </span>
+                    <span id="sharedSessionBadge" class="badge bg-info text-dark ms-2 d-none">
+                        <i class="fas fa-users"></i> Acceso compartido
                     </span>
                 </div>
             </nav>
@@ -339,6 +477,17 @@
                                         </div>
                                     </div>
                                 </div>
+                                <div class="mb-3">
+                                    <label class="form-label">Producto del inventario (opcional)</label>
+                                    <select id="saleProductId" class="form-select">
+                                        <option value="">No vincular</option>
+                                    </select>
+                                    <small class="text-muted" id="saleProductInfo">Selecciona un producto para controlar perfiles disponibles.</small>
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label">Perfil / Slot entregado</label>
+                                    <input type="text" id="saleProductProfile" class="form-control" placeholder="Ej: Perfil 2 - Familiar">
+                                </div>
                                 <button type="submit" class="btn btn-primary w-100">Guardar</button>
                             </form>
                         </div>
@@ -439,6 +588,17 @@
                                             </div>
                                         </div>
                                     </div>
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label">Producto del inventario (opcional)</label>
+                                    <select id="editSaleProductId" class="form-select">
+                                        <option value="">No vincular</option>
+                                    </select>
+                                    <small class="text-muted" id="editSaleProductInfo">Elige qué producto abastece esta suscripción.</small>
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label">Perfil / Slot entregado</label>
+                                    <input type="text" id="editSaleProductProfile" class="form-control" placeholder="Ej: Perfil 2 - Familiar">
                                 </div>
                                 <button type="submit" class="btn btn-primary w-100">Guardar Cambios</button>
                             </form>
@@ -579,6 +739,101 @@
                             <i class="fab fa-linkedin"></i>
                         </button>
                     </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row mt-4">
+        <div class="col-12">
+            <div class="support-contact-card">
+                <div>
+                    <h5 class="mb-1"><i class="fas fa-life-ring me-2 text-primary"></i>¿Problemas con la página?</h5>
+                    <p class="text-muted mb-0">Escríbenos por WhatsApp o envíanos un correo y te ayudaremos a recuperar SellStream.</p>
+                </div>
+                <div class="contact-actions">
+                    <a class="btn btn-success" target="_blank" rel="noopener" href="https://wa.me/56993150331?text=Hola%20equipo%20SellStream%2C%20tengo%20un%20problema%20con%20la%20p%C3%A1gina%20y%20necesito%20ayuda.">
+                        <i class="fab fa-whatsapp me-2"></i>+56 9 9315 0331
+                    </a>
+                    <a class="btn btn-outline-primary" href="mailto:trustzone.online@gmail.com?subject=Soporte%20SellStream&body=Hola%20equipo%20SellStream%2C%20tengo%20un%20problema%20con%20la%20p%C3%A1gina%20y%20necesito%20ayuda.">
+                        <i class="fas fa-envelope me-2"></i>trustzone.online@gmail.com
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal de accesos compartidos -->
+    <div class="modal fade" id="collaboratorsModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        <i class="fas fa-user-friends me-2"></i>Accesos compartidos
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="row g-4">
+                        <div class="col-lg-5">
+                            <div class="shared-access-card h-100">
+                                <h6 class="fw-bold mb-3">Invitar colaborador</h6>
+                                <p class="text-muted small">Crea credenciales compartidas para que otra persona gestione tus suscripciones. Puedes revocar el acceso cuando quieras.</p>
+                                <form id="sharedAccessForm">
+                                    <div class="mb-3">
+                                        <label class="form-label">Alias del colaborador</label>
+                                        <div class="input-group alias-input-group">
+                                            <input type="text" id="sharedAccessAlias" class="form-control" placeholder="ej: equipo2" minlength="3" maxlength="30" required>
+                                            <span class="input-group-text">@sellstream.trustzonestore.com</span>
+                                        </div>
+                                        <small class="text-muted d-block" id="sharedAliasHelper">Escribe un alias único; te mostraremos si está disponible.</small>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label">Contraseña temporal</label>
+                                        <input type="text" id="sharedAccessPassword" class="form-control" placeholder="Define una contraseña" minlength="6" required>
+                                        <small class="text-muted d-block" id="sharedPasswordHelper">Este correo no debe estar registrado con una cuenta principal.</small>
+                                    </div>
+                                    <button type="submit" class="btn btn-primary w-100">
+                                        <i class="fas fa-user-plus me-2"></i>Crear acceso
+                                    </button>
+                                </form>
+                            </div>
+                        </div>
+                        <div class="col-lg-7">
+                            <div class="shared-access-card h-100">
+                                <div class="d-flex justify-content-between align-items-center mb-3">
+                                    <div>
+                                        <h6 class="fw-bold mb-0">Tus colaboradores</h6>
+                                        <small class="text-muted">Elimina el acceso cuando lo necesites.</small>
+                                    </div>
+                                    <span class="badge bg-light text-dark" id="sharedAccessCount">0 activos</span>
+                                </div>
+                                <div id="sharedAccessList" class="list-group small">
+                                    <p class="text-muted">No has agregado colaboradores.</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Guía para colaboradores -->
+    <div class="modal fade" id="collaboratorGuideModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="fas fa-user-shield me-2"></i>Iniciar como colaborador</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <ol class="collaborator-steps">
+                        <li>Escribe tu alias en el campo email como <strong>alias@sellstream.trustzonestore.com</strong>.</li>
+                        <li>Ingresa la contraseña temporal que te entregó el propietario.</li>
+                        <li>Presiona "Ingresar al panel". Verás el badge "Acceso compartido" si todo está correcto.</li>
+                    </ol>
+                    <p class="text-muted small mb-0">Si el acceso fue revocado, solicita un nuevo alias al propietario.</p>
                 </div>
             </div>
         </div>

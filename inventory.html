@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SellStream - Inventario de Productos</title>
+    <meta name="description" content="Panel dedicado para gestionar productos, claves y stock en SellStream.">
+    <link rel="apple-touch-icon" sizes="180x180" href="favicon/apple-touch-icon.png">
+    <link rel="icon" type="image/png" sizes="32x32" href="favicon/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="favicon/favicon-16x16.png">
+    <link rel="manifest" href="favicon/site.webmanifest">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+<body class="bg-light">
+    <nav class="navbar navbar-dark mb-4">
+        <div class="container">
+            <button class="btn btn-outline-light" id="backToDashboard">
+                <i class="fas fa-arrow-left me-2"></i>Volver al panel
+            </button>
+            <span class="navbar-brand fw-bold">
+                <img src="SellStream.png" alt="SellStream Logo" height="30" class="me-2">
+                Inventario de Productos
+            </span>
+            <div class="info-container">
+                <div class="text-white" id="inventoryUserEmail"></div>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mb-5" id="inventoryView" style="display: none;">
+        <section class="inventory-section">
+            <div class="inventory-header gap-3">
+                <div>
+                    <h3 class="mb-1">Laboratorio de Productos</h3>
+                    <p class="text-muted mb-0">Centraliza claves, stock, licencias y notas internas.</p>
+                </div>
+                <div class="inventory-header-actions">
+                    <div class="input-group inventory-search">
+                        <span class="input-group-text"><i class="fas fa-search"></i></span>
+                        <input type="search" id="productSearch" class="form-control" placeholder="Buscar por nombre, SKU o etiqueta">
+                    </div>
+                    <button type="button" class="btn btn-outline-secondary" id="exportProductsBtn">
+                        <i class="fas fa-file-export me-2"></i>Exportar CSV
+                    </button>
+                    <button type="button" class="btn btn-primary" id="newProductBtn">
+                        <i class="fas fa-plus me-2"></i>Nuevo producto
+                    </button>
+                </div>
+            </div>
+            <div class="row g-3 inventory-stats mt-1">
+                <div class="col-md-3 col-sm-6">
+                    <div class="inventory-stat-card">
+                        <p class="text-muted mb-1">Productos activos</p>
+                        <h3 id="inventoryTotal">0</h3>
+                    </div>
+                </div>
+                <div class="col-md-3 col-sm-6">
+                    <div class="inventory-stat-card">
+                        <p class="text-muted mb-1">Unidades totales</p>
+                        <h3 id="inventoryStock">0</h3>
+                    </div>
+                </div>
+                <div class="col-md-3 col-sm-6">
+                    <div class="inventory-stat-card">
+                        <p class="text-muted mb-1">Stock en alerta</p>
+                        <h3 id="inventoryLowStock">0</h3>
+                    </div>
+                </div>
+                <div class="col-md-3 col-sm-6">
+                    <div class="inventory-stat-card">
+                        <p class="text-muted mb-1">Perfiles ocupados</p>
+                        <h3 id="inventoryProfilesUsed">0</h3>
+                    </div>
+                </div>
+                <div class="col-md-3 col-sm-6">
+                    <div class="inventory-stat-card">
+                        <p class="text-muted mb-1">Perfiles disponibles</p>
+                        <h3 id="inventoryProfilesFree">0</h3>
+                    </div>
+                </div>
+            </div>
+            <div class="support-contact-card mt-3">
+                <div>
+                    <h5 class="mb-1"><i class="fas fa-life-ring me-2 text-primary"></i>¿Problemas con la página?</h5>
+                    <p class="text-muted mb-0">El equipo de SellStream está atento. Escríbenos y revisamos tu caso.</p>
+                </div>
+                <div class="contact-actions">
+                    <a class="btn btn-success" target="_blank" rel="noopener" href="https://wa.me/56993150331?text=Hola%20equipo%20SellStream%2C%20tengo%20un%20problema%20con%20la%20p%C3%A1gina%20y%20necesito%20ayuda.">
+                        <i class="fab fa-whatsapp me-2"></i>+56 9 9315 0331
+                    </a>
+                    <a class="btn btn-outline-primary" href="mailto:trustzone.online@gmail.com?subject=Soporte%20SellStream&body=Hola%20equipo%20SellStream%2C%20tengo%20un%20problema%20con%20la%20p%C3%A1gina%20y%20necesito%20ayuda.">
+                        <i class="fas fa-envelope me-2"></i>trustzone.online@gmail.com
+                    </a>
+                </div>
+            </div>
+            <div id="productList" class="row g-4 mt-1"></div>
+        </section>
+    </div>
+
+    <div class="container" id="inventoryEmptyState" style="display: none;">
+        <div class="alert alert-warning text-center">
+            <h5 class="mb-1">Necesitas iniciar sesión</h5>
+            <p class="mb-3">Accede desde el panel principal para gestionar tu inventario.</p>
+            <a href="index.html" class="btn btn-primary">Ir a SellStream</a>
+        </div>
+    </div>
+
+    <div class="modal fade" id="productModal" tabindex="-1">
+        <div class="modal-dialog modal-lg modal-dialog-scrollable">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="productModalTitle">Nuevo producto</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="productForm">
+                        <input type="hidden" id="productId">
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label">Nombre comercial</label>
+                                <input type="text" id="productTitle" class="form-control" placeholder="Ej: Netflix UHD" required>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">SKU o código interno</label>
+                                <input type="text" id="productSku" class="form-control" placeholder="Ej: NF-4K-01">
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Stock disponible</label>
+                                <input type="number" id="productStock" class="form-control" min="0" value="0">
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Stock mínimo</label>
+                                <input type="number" id="productMinStock" class="form-control" min="0" value="0">
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Precio referencial (CLP)</label>
+                                <div class="input-group">
+                                    <span class="input-group-text">$</span>
+                                    <input type="number" id="productPrice" class="form-control" min="0" value="0">
+                                    <span class="input-group-text">CLP</span>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Perfiles totales</label>
+                                <input type="number" id="productProfileSlots" class="form-control" min="0" value="0" placeholder="Ej: 4">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Usuario o correo vinculado</label>
+                                <input type="text" id="productAccessUser" class="form-control" placeholder="correo@cuenta.com">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Contraseña / PIN</label>
+                                <div class="input-group">
+                                    <input type="password" id="productAccessPassword" class="form-control" placeholder="Clave secreta">
+                                    <button type="button" class="btn btn-outline-secondary" onclick="togglePassword('productAccessPassword')">
+                                        <i class="fas fa-eye"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Clave, token o licencia</label>
+                                <input type="text" id="productLicenseKey" class="form-control" placeholder="XXXX-XXXX-XXXX">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">URL o panel asociado</label>
+                                <input type="url" id="productAccessUrl" class="form-control" placeholder="https://panel.com">
+                            </div>
+                            <div class="col-md-12">
+                                <label class="form-label">Etiquetas (separadas por coma)</label>
+                                <input type="text" id="productTags" class="form-control" placeholder="streaming, 4k, familiar">
+                            </div>
+                            <div class="col-md-12">
+                                <label class="form-label">Notas internas</label>
+                                <textarea id="productNotes" class="form-control" rows="3" placeholder="Instrucciones, recordatorios o detalles adicionales"></textarea>
+                            </div>
+                        </div>
+                        <button type="submit" class="btn btn-primary w-100 mt-4" id="productSubmitBtn">Guardar producto</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-app.js";
+        const firebaseConfig = {
+            apiKey: "AIzaSyDzKjNf4uCGSq25seHWXdSjIAfDO5aYI_s",
+            authDomain: "tiempoventas-fd1eb.firebaseapp.com",
+            projectId: "tiempoventas-fd1eb",
+            storageBucket: "tiempoventas-fd1eb.firebasestorage.app",
+            messagingSenderId: "1052194374963",
+            appId: "1:1052194374963:web:54931d74c1889cb2002a46"
+        };
+        const app = initializeApp(firebaseConfig);
+        window.firebaseApp = app;
+    </script>
+    <script type="module" src="inventory.js"></script>
+</body>
+</html>
