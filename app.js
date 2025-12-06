@@ -1,4 +1,4 @@
-import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, sendPasswordResetEmail, signOut, GoogleAuthProvider, signInWithPopup, fetchSignInMethodsForEmail } from 'https://www.gstatic.com/firebasejs/11.1.0/firebase-auth.js';
+import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, sendPasswordResetEmail, sendEmailVerification, signOut, GoogleAuthProvider, signInWithPopup, fetchSignInMethodsForEmail } from 'https://www.gstatic.com/firebasejs/11.1.0/firebase-auth.js';
 import { getFirestore, collection, addDoc, getDocs, deleteDoc, doc, updateDoc, getDoc, query, where, setDoc } from 'https://www.gstatic.com/firebasejs/11.1.0/firebase-firestore.js';
 
 const app = window.firebaseApp;
@@ -8,6 +8,7 @@ googleProvider.setCustomParameters({ prompt: 'select_account' });
 const db = getFirestore(app);
 const SHARED_SESSION_KEY = 'sellstream_shared_session';
 const SHARED_EMAIL_DOMAIN = 'sellstream.trustzonestore.com';
+const DEFAULT_VERIFICATION_REDIRECT = 'https://tiempoventas-fd1eb.firebaseapp.com';
 
 let currentFilter = null;
 let currentSales = [];
@@ -54,6 +55,11 @@ function normalizeEmail(value = '') {
         return buildSharedEmail(alias);
     }
     return trimmed;
+}
+
+function getVerificationRedirectUrl() {
+    const origin = window?.location?.origin || '';
+    return origin.startsWith('http') ? origin : DEFAULT_VERIFICATION_REDIRECT;
 }
 
 async function hashSharedPassword(password) {
@@ -394,6 +400,10 @@ const saleProductProfileInput = document.getElementById('saleProductProfile');
 const editSaleProductSelect = document.getElementById('editSaleProductId');
 const editSaleProductInfo = document.getElementById('editSaleProductInfo');
 const editSaleProductProfileInput = document.getElementById('editSaleProductProfile');
+const verificationEmailInput = document.getElementById('verificationEmailInput');
+const verificationStatusMessage = document.getElementById('verificationStatusMessage');
+const sendVerificationEmailBtn = document.getElementById('sendVerificationEmailBtn');
+const verificationModalElement = document.getElementById('verificationModal');
 
 function setAuthView(view = 'login') {
     if (!authFormContainer) return;
@@ -616,6 +626,46 @@ document.getElementById('googleRegisterBtn').addEventListener('click', (e) => {
     handleGoogleAuth(e.currentTarget, 'register');
 });
 
+if (verificationModalElement) {
+    verificationModalElement.addEventListener('show.bs.modal', () => {
+        if (verificationEmailInput) {
+            const userEmail = auth.currentUser?.email || '';
+            verificationEmailInput.value = userEmail;
+            verificationEmailInput.placeholder = userEmail ? '' : 'Inicia sesión para ver tu correo';
+        }
+        updateVerificationStatus('Envía el enlace de verificación y confirma tu correo para desbloquear todas las funciones.', 'info');
+    });
+}
+
+if (sendVerificationEmailBtn) {
+    sendVerificationEmailBtn.addEventListener('click', async () => {
+        const button = sendVerificationEmailBtn;
+        try {
+            showLoading(button);
+            const user = auth.currentUser;
+            if (!user) {
+                throw new Error('Debes iniciar sesión con tu cuenta principal para verificarla');
+            }
+
+            await sendEmailVerification(user, {
+                handleCodeInApp: false,
+                url: getVerificationRedirectUrl()
+            });
+
+            const successMessage = `Enlace enviado a <strong>${user.email}</strong>. Revisa tu bandeja y carpeta de spam.`;
+            updateVerificationStatus(successMessage, 'success');
+            showSuccess('Enlace de verificación enviado');
+        } catch (error) {
+            console.error('Error sending verification email:', error);
+            const message = error.message || 'No se pudo enviar el enlace de verificación';
+            updateVerificationStatus(message, 'danger');
+            showError(message);
+        } finally {
+            hideLoading(button);
+        }
+    });
+}
+
 document.getElementById('recoveryForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     const submitBtn = e.target.querySelector('button[type="submit"]');
@@ -667,6 +717,13 @@ function hideLoading(button) {
         button.innerHTML = button.dataset.originalContent;
         delete button.dataset.originalContent;
     }
+}
+
+function updateVerificationStatus(message, tone = 'info') {
+    if (!verificationStatusMessage) return;
+    verificationStatusMessage.classList.remove('alert-info', 'alert-success', 'alert-danger');
+    verificationStatusMessage.classList.add(`alert-${tone}`);
+    verificationStatusMessage.innerHTML = message;
 }
 
 async function handleGoogleAuth(button, context = 'login') {
@@ -2053,7 +2110,23 @@ async function refreshApplicationState(user) {
 
         const verificationBadge = document.getElementById('verificationBadge');
         const ownerDoc = await getDoc(doc(db, 'users', activeUserId));
-        const ownerData = ownerDoc.data();
+        const ownerData = ownerDoc.exists() ? ownerDoc.data() : {};
+        const currentFirebaseUser = auth.currentUser;
+
+        if (
+            currentFirebaseUser &&
+            currentFirebaseUser.uid === activeUserId &&
+            currentFirebaseUser.emailVerified &&
+            !ownerData?.isVerified
+        ) {
+            const verifiedAt = getChileDateTime();
+            await setDoc(doc(db, 'users', activeUserId), {
+                isVerified: true,
+                verifiedAt,
+                emailVerifiedAt: verifiedAt
+            }, { merge: true });
+            ownerData.isVerified = true;
+        }
 
         if (verificationBadge) {
             if (ownerData?.isVerified) {
@@ -2099,40 +2172,44 @@ async function refreshApplicationState(user) {
 // Agregar el manejador del formulario de verificación
 document.getElementById('verificationForm').addEventListener('submit', async (e) => {
     e.preventDefault();
-    
-    const code = document.getElementById('verificationCode').value.trim();
     const submitBtn = e.target.querySelector('button[type="submit"]');
     
     try {
         showLoading(submitBtn);
-        
-        if (code !== 'SELLSTREAM20') {
-            throw new Error('Código de verificación incorrecto');
+        const user = auth.currentUser;
+        if (!user) {
+            throw new Error('Debes iniciar sesión con tu cuenta principal para verificarla');
         }
 
-        // Si el código es correcto, actualizar el estado de verificación
-        const ownerId = getActiveUserId();
-        if (!ownerId) {
-            throw new Error('No hay usuario activo para verificar');
+        await user.reload();
+        if (!user.emailVerified) {
+            throw new Error('Tu correo aún no aparece verificado. Abre el enlace enviado a tu email o solicita uno nuevo.');
         }
 
-        await setDoc(doc(db, 'users', ownerId), {
+        const verifiedAt = getChileDateTime();
+        await setDoc(doc(db, 'users', user.uid), {
             isVerified: true,
-            verifiedAt: new Date().toISOString()
+            verifiedAt,
+            emailVerifiedAt: verifiedAt
         }, { merge: true });
 
-        // Actualizar UI
         const verificationBadge = document.getElementById('verificationBadge');
-        verificationBadge.className = 'badge bg-success';
-        verificationBadge.innerHTML = '<i class="fas fa-check-circle"></i> Cuenta verificada';
-        verificationBadge.onclick = null;
+        if (verificationBadge) {
+            verificationBadge.className = 'badge bg-success';
+            verificationBadge.innerHTML = '<i class="fas fa-check-circle"></i> Cuenta verificada';
+            verificationBadge.onclick = null;
+        }
 
-        // Cerrar el modal y mostrar mensaje de éxito
-        bootstrap.Modal.getInstance(document.getElementById('verificationModal')).hide();
-        showSuccess('¡Cuenta verificada exitosamente!');
+        updateVerificationStatus('Tu cuenta ya está verificada. ¡Gracias!', 'success');
+        const verificationModal = bootstrap.Modal.getInstance(document.getElementById('verificationModal'));
+        verificationModal?.hide();
+        showSuccess('Cuenta verificada correctamente');
+        await refreshApplicationState(user);
         
     } catch (error) {
-        showError(error.message);
+        const message = error.message || 'No se pudo confirmar la verificación todavía';
+        updateVerificationStatus(message, 'danger');
+        showError(message);
     } finally {
         hideLoading(submitBtn);
     }
@@ -2206,10 +2283,8 @@ Object.assign(window, {
     restoreFromTrash,
     removeSharedAccess,
     deleteFromTrash,
-    togglePassword,
     toggleStatus, // Agregar toggleStatus a la lista
-    deleteSale,
-    deleteProduct
+    deleteSale
 });
 
 // Agregar después de la inicialización de la aplicación
@@ -2217,6 +2292,9 @@ const shareButton = document.getElementById('shareButton');
 const shareModal = new bootstrap.Modal(document.getElementById('shareModal'));
 const collaboratorGuideModalElement = document.getElementById('collaboratorGuideModal');
 const collaboratorGuideTriggers = document.querySelectorAll('#openCollaboratorGuide, #collaboratorHelpLink');
+const tutorialsButton = document.getElementById('tutorialsButton');
+const forumButton = document.getElementById('forumButton');
+const inventoryButton = document.getElementById('inventoryButton');
 let collaboratorGuideModal = null;
 
 if (collaboratorGuideModalElement) {
@@ -2295,16 +2373,19 @@ document.getElementById('copyLinkBtn').addEventListener('click', async () => {
 });
 
 // Reemplazar el handler del botón de tutoriales
-tutorialsButton.addEventListener('click', () => {
-    window.location.href = 'tutorials.html';
-});
+if (tutorialsButton) {
+    tutorialsButton.addEventListener('click', () => {
+        window.location.href = 'tutorials.html';
+    });
+}
 
 // Agregar handler del botón del foro
-document.getElementById('forumButton').addEventListener('click', () => {
-    window.location.href = 'forum.html';
-});
+if (forumButton) {
+    forumButton.addEventListener('click', () => {
+        window.location.href = 'forum.html';
+    });
+}
 
-const inventoryButton = document.getElementById('inventoryButton');
 if (inventoryButton) {
     inventoryButton.addEventListener('click', () => {
         window.location.href = 'inventory.html';

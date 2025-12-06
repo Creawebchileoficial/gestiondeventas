@@ -855,29 +855,37 @@
                         <i class="fas fa-key fa-3x text-primary mb-3 verification-icon"></i>
                         <h4>Verificación de Cuenta</h4>
                         <p class="text-muted">
-                            Ingresa el código de verificación para acceder a todas las funcionalidades.
+                            Te enviaremos un enlace seguro a tu correo para validar la cuenta.
                             <br>
-                            <small>Puedes verificar tu cuenta más tarde si lo deseas.</small>
+                            <small>Revisa tu bandeja principal y la carpeta de spam.</small>
                         </p>
                     </div>
-                    <form id="verificationForm">
-                        <div class="mb-3">
-                            <input type="text" 
-                                   class="form-control" 
-                                   id="verificationCode" 
-                                   placeholder="Ingresa el código"
-                                   maxlength="12"
-                                   autocomplete="off"
-                                   required>
+                    <div class="alert alert-info" id="verificationStatusMessage">
+                        Envía el enlace de verificación y confirma la cuenta desde tu correo registrado.
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label text-muted small mb-1">Correo asociado</label>
+                        <div class="input-group">
+                            <span class="input-group-text"><i class="fas fa-envelope"></i></span>
+                            <input type="email" class="form-control" id="verificationEmailInput" readonly>
                         </div>
-                        <div class="d-flex gap-2">
+                        <small class="text-muted">Si necesitas cambiarlo, actualiza tu correo en el perfil.</small>
+                    </div>
+                    <button type="button" class="btn btn-outline-primary w-100 mb-3" id="sendVerificationEmailBtn">
+                        <i class="fas fa-paper-plane me-2"></i>Enviar enlace de verificación
+                    </button>
+                    <form id="verificationForm">
+                        <div class="d-flex flex-column flex-md-row gap-2">
                             <button type="button" class="btn btn-secondary flex-grow-1" data-bs-dismiss="modal">
                                 <i class="fas fa-times me-2"></i>Más tarde
                             </button>
                             <button type="submit" class="btn btn-primary flex-grow-1">
-                                <i class="fas fa-check-circle me-2"></i>Verificar Cuenta
+                                <i class="fas fa-check-circle me-2"></i>Ya verifiqué mi correo
                             </button>
                         </div>
+                        <small class="text-muted d-block text-center mt-3">
+                            Después de confirmar el enlace, presiona "Ya verifiqué" para actualizar el estado.
+                        </small>
                     </form>
                 </div>
             </div>
